@@ -9,6 +9,7 @@ const port = 5000;
 // Ensure scripts directory exists
 fs.ensureDirSync(path.join(__dirname, 'scripts'));
 
+app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Serve the index.html file
@@ -22,21 +23,37 @@ app.get('/style.css', (req, res) => {
 });
 
 const storage = multer.memoryStorage();
-const upload = multer({ storage: storage });
+const upload = multer({ 
+    storage: storage,
+    limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+});
 
 app.post('/create', upload.single('luaFile'), async (req, res) => {
     try {
-        if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+        if (!req.file) {
+            console.error('No file in request');
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
+        
+        if (!req.body.name) {
+            return res.status(400).json({ error: 'No script name provided' });
+        }
+
         const name = req.body.name.replace(/[^a-z0-9-]/gi, '_').toLowerCase();
         const content = req.file.buffer.toString('utf8');
         
-        await fs.writeFile(path.join(__dirname, 'scripts', name + '.lua'), content);
+        const filePath = path.join(__dirname, 'scripts', name + '.lua');
+        await fs.writeFile(filePath, content);
         
         const domain = req.get('host');
-        const url = 'http://' + domain + '/scripts/' + name;
+        // Check if domain is localhost/internal and handle protocol
+        const protocol = req.headers['x-forwarded-proto'] || 'http';
+        const url = protocol + '://' + domain + '/scripts/' + name;
         
+        console.log('Created script:', name);
         res.json({ url: url });
     } catch (err) {
+        console.error('Error in /create:', err);
         res.status(500).json({ error: err.message });
     }
 });
